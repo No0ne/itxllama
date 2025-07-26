@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.13...3.27)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
@@ -8,12 +8,12 @@ set(PICO_BOARD pico CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK
 include(pico_sdk_import.cmake)
 
-if (NOT PICO_SDK_VERSION_STRING VERSION_EQUAL "1.5.1")
-  message(FATAL_ERROR "Raspberry Pi Pico SDK version 1.5.1 required. Your version is ${PICO_SDK_VERSION_STRING}")
+if (PICO_SDK_VERSION_STRING VERSION_LESS "2.1.1")
+  message(FATAL_ERROR "Raspberry Pi Pico SDK version 2.1.1 (or later) required. Your version is ${PICO_SDK_VERSION_STRING}")
 endif()
 
 set(target_name itxllama-rp2040)
-set(target_version 0.2)
+set(target_version 0.3)
 project(${target_name} C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK

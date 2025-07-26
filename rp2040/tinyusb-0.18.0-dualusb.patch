@@ -1,29 +1,31 @@
 diff --git a/src/host/usbh.c b/src/host/usbh.c
-index 8c488aaa2..4d2f067a2 100644
+index a2994cde7..b0e739503 100644
 --- a/src/host/usbh.c
 +++ b/src/host/usbh.c
-@@ -353,8 +353,20 @@ bool tuh_inited(void) {
+@@ -362,9 +362,22 @@ bool tuh_inited(void) {
  }
  
- bool tuh_init(uint8_t rhport) {
+ bool tuh_rhport_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
 +  #if CFG_TUH_RPI_DUAL_USB
 +    if (rhport) {
-+      if ( !tuh_inited() ) return false;
-+      TU_ASSERT(hcd_init(rhport));
++      if (!tuh_inited()) return false;
++      TU_ASSERT(hcd_init(rhport, rh_init));
 +      hcd_int_enable(rhport);
 +      return true;
 +    } else {
-+      // skip if already initialized
-+      if (tuh_rhport_is_active(rhport)) return true;
++      if (tuh_rhport_is_active(rhport)) {
++        return true; // skip if already initialized
++      }
 +    }
 +  #else
-   // skip if already initialized
-   if (tuh_rhport_is_active(rhport)) return true;
+   if (tuh_rhport_is_active(rhport)) {
+     return true; // skip if already initialized
+   }
 +  #endif
  
-   TU_LOG_USBH("USBH init on controller %u\r\n", rhport);
- 
-@@ -819,8 +831,14 @@ void usbh_int_set(bool enabled) {
+   TU_LOG_USBH("USBH init on controller %u, speed = %s\r\n", rhport,
+     rh_init->speed == TUSB_SPEED_HIGH ? "High" : "Full");
+@@ -842,8 +855,14 @@ void usbh_int_set(bool enabled) {
    // TODO all host controller if multiple are used since they shared the same event queue
    if (enabled) {
      hcd_int_enable(_usbh_controller);
@@ -39,7 +41,7 @@ index 8c488aaa2..4d2f067a2 100644
  }
  
 diff --git a/src/portable/raspberrypi/pio_usb/hcd_pio_usb.c b/src/portable/raspberrypi/pio_usb/hcd_pio_usb.c
-index f4de3c51d..e8390715b 100644
+index 6422afff1..c2e1a55cf 100644
 --- a/src/portable/raspberrypi/pio_usb/hcd_pio_usb.c
 +++ b/src/portable/raspberrypi/pio_usb/hcd_pio_usb.c
 @@ -55,7 +55,11 @@ bool hcd_configure(uint8_t rhport, uint32_t cfg_id, const void *cfg_param) {
@@ -47,14 +49,14 @@ index f4de3c51d..e8390715b 100644
  }
  
 +#if CFG_TUH_RPI_DUAL_USB
-+bool pio_hcd_init(uint8_t rhport) {
++bool pio_hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
 +#else
- bool hcd_init(uint8_t rhport) {
+ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
 +#endif
    (void) rhport;
+   (void) rh_init;
  
-   // To run USB SOF interrupt in core1, call this init in core1
-@@ -64,17 +68,29 @@ bool hcd_init(uint8_t rhport) {
+@@ -65,17 +69,29 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
    return true;
  }
  
@@ -84,7 +86,7 @@ index f4de3c51d..e8390715b 100644
    uint8_t const pio_rhport = RHPORT_PIO(rhport);
  
    root_port_t *root = PIO_USB_ROOT_PORT(pio_rhport);
-@@ -83,28 +99,48 @@ bool hcd_port_connect_status(uint8_t rhport) {
+@@ -84,28 +100,48 @@ bool hcd_port_connect_status(uint8_t rhport) {
    return line_state != PORT_PIN_SE0;
  }
  
@@ -133,7 +135,7 @@ index f4de3c51d..e8390715b 100644
    (void) rhport;
  }
  
-@@ -112,7 +148,11 @@ void hcd_int_disable(uint8_t rhport) {
+@@ -113,7 +149,11 @@ void hcd_int_disable(uint8_t rhport) {
  // Endpoint API
  //--------------------------------------------------------------------+
  
@@ -145,7 +147,7 @@ index f4de3c51d..e8390715b 100644
    hcd_devtree_info_t dev_tree;
    hcd_devtree_get_info(dev_addr, &dev_tree);
    bool const need_pre = (dev_tree.hub_addr && dev_tree.speed == TUSB_SPEED_LOW);
-@@ -121,22 +161,38 @@ bool hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_endpoint_t const
+@@ -122,17 +162,29 @@ bool hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_endpoint_t const
    return pio_usb_host_endpoint_open(pio_rhport, dev_addr, (uint8_t const *) desc_ep, need_pre);
  }
  
@@ -175,16 +177,7 @@ index f4de3c51d..e8390715b 100644
    uint8_t const pio_rhport = RHPORT_PIO(rhport);
    return pio_usb_host_send_setup(pio_rhport, dev_addr, setup_packet);
  }
- 
-+//#if CFG_TUH_RPI_DUAL_USB
-+//bool pio_hcd_edpt_busy(uint8_t dev_addr, uint8_t ep_addr)
-+//#else
- //bool hcd_edpt_busy(uint8_t dev_addr, uint8_t ep_addr)
-+//#endif
- //{
- //    // EPX is shared, so multiple device addresses and endpoint addresses share that
- //    // so if any transfer is active on epx, we are busy. Interrupt endpoints have their own
-@@ -150,7 +206,11 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
+@@ -151,7 +203,11 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
  //    return busy;
  //}
  
@@ -198,16 +191,16 @@ index f4de3c51d..e8390715b 100644
    (void) ep_addr;
 diff --git a/src/portable/raspberrypi/pio_usb/hcd_pio_usb.h b/src/portable/raspberrypi/pio_usb/hcd_pio_usb.h
 new file mode 100644
-index 000000000..16174c55d
+index 000000000..69495347f
 --- /dev/null
 +++ b/src/portable/raspberrypi/pio_usb/hcd_pio_usb.h
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,21 @@
 +#ifndef _HCD_PIO_USB_H_
 +#define _HCD_PIO_USB_H_
 +
 +#include "common/tusb_common.h"
 +
-+bool pio_hcd_init(uint8_t rhport);
++bool pio_hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init);
 +void pio_hcd_port_reset(uint8_t rhport);
 +void pio_hcd_port_reset_end(uint8_t rhport);
 +bool pio_hcd_port_connect_status(uint8_t rhport);
@@ -216,20 +209,15 @@ index 000000000..16174c55d
 +uint32_t pio_hcd_frame_number(uint8_t rhport);
 +void pio_hcd_int_enable(uint8_t rhport);
 +void pio_hcd_int_disable(uint8_t rhport);
-+bool pio_hcd_edpt_open(uint8_t rhport, uint8_t dev_addr,
-+                       tusb_desc_endpoint_t const *desc_ep);
-+bool pio_hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr,
-+                       uint8_t *buffer, uint16_t buflen);
++bool pio_hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_endpoint_t const *desc_ep);
++bool pio_hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *buffer, uint16_t buflen);
 +bool pio_hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr);
-+bool pio_hcd_setup_send(uint8_t rhport, uint8_t dev_addr,
-+                        uint8_t const setup_packet[8]);
-+bool pio_hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr,
-+                              uint8_t ep_addr);
++bool pio_hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet[8]);
++bool pio_hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr);
 +
 +#endif /* _HCD_PIO_USB_H_ */
-\ No newline at end of file
 diff --git a/src/portable/raspberrypi/rp2040/hcd_rp2040.c b/src/portable/raspberrypi/rp2040/hcd_rp2040.c
-index 222dbbbf0..73a18bd94 100644
+index 2c0a3fd49..6e3b03f2c 100644
 --- a/src/portable/raspberrypi/rp2040/hcd_rp2040.c
 +++ b/src/portable/raspberrypi/rp2040/hcd_rp2040.c
 @@ -27,11 +27,16 @@
@@ -250,16 +238,16 @@ index 222dbbbf0..73a18bd94 100644
  //--------------------------------------------------------------------+
  // INCLUDE
  //--------------------------------------------------------------------+
-@@ -377,6 +382,9 @@ static void _hw_endpoint_init(struct hw_endpoint *ep, uint8_t dev_addr, uint8_t
+@@ -376,6 +381,9 @@ static void _hw_endpoint_init(struct hw_endpoint *ep, uint8_t dev_addr, uint8_t
+ // HCD API
  //--------------------------------------------------------------------+
- bool hcd_init(uint8_t rhport)
- {
+ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
 +  #if CFG_TUH_RPI_DUAL_USB
-+    if (rhport) return pio_hcd_init(rhport);
++    if (rhport) return pio_hcd_init(rhport, rh_init);
 +  #endif
    (void) rhport;
+   (void) rh_init;
    pico_trace("hcd_init %d\n", rhport);
-   assert(rhport == 0);
 @@ -421,6 +429,12 @@ bool hcd_deinit(uint8_t rhport) {
  
  void hcd_port_reset(uint8_t rhport)
@@ -310,7 +298,7 @@ index 222dbbbf0..73a18bd94 100644
      default:
 -      panic("Invalid speed\n");
 -      // return TUSB_SPEED_INVALID;
-+      // panic("Invalid speed\n");
++      //panic("Invalid speed\n");
 +      return TUSB_SPEED_INVALID;
    }
  }
